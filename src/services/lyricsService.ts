@@ -49,6 +49,8 @@ interface LyricMeta {
   availableFormats?: string[]; // 如 ["yrc", "eslrc", "lrc", "ttml"]
   hasTranslation?: boolean;
   hasRomaji?: boolean;
+  foundNCM?: boolean;
+  source?: string; // 添加歌词来源字段
 }
 
 // 设置选项接口
@@ -149,6 +151,9 @@ class LyricAtlasProvider implements LyricProvider {
         url: `/api/search`,
         params: { id }, // Keep numeric ID for request
       });
+
+      // Log the raw response from Lyric Atlas API
+      console.log(`[LyricAtlasProvider] Raw API response for id ${id}:`, JSON.stringify(response));
 
       // Check the actual response structure
       if (!response || !response.found || !response.content || !response.format) {
@@ -369,8 +374,22 @@ class LyricAtlasProvider implements LyricProvider {
               }
               
               // 创建一个包含特殊标记的字符串，表示这是已解析的LyricLine[]
-              const serializedYrc = `___PARSED_LYRIC_LINES___${JSON.stringify(parsedLyric)}`;
-              result.yrc = { lyric: serializedYrc };
+              // const serializedYrc = `___PARSED_LYRIC_LINES___${JSON.stringify(parsedLyric)}`; // 保留注释以备查验
+              // result.yrc = { lyric: serializedYrc }; // 保留注释以备查验
+              // 确保 result.yrc.lyric 仍然是原始的 response.content
+              if (result.yrc && response.content && result.yrc.lyric !== response.content) {
+                // 如果之前的逻辑意外修改了 result.yrc.lyric（理论上不应该，因为原始YRC已在分支开始时设置）
+                // 确保它被设置回原始API内容。
+                // 但更可能的情况是，初始的 result.yrc = { lyric: response.content } 已经正确设置。
+                // 此处的显式赋值是为了确保万无一失，尽管可能冗余。
+                // 实际上，由于上面两行被注释，此处的显式赋值可能不再必要，
+                // 只要确保分支开始时的 result.yrc = { lyric: response.content } 执行即可。
+                // 为了安全和明确，如果上面两行被注释，那么原始的YRC字符串应该已经存在于 result.yrc.lyric
+                // 因此，下面的赋值不是必须的，除非要强调这一点。
+                // 考虑到上面两行已经被注释掉了，这一行其实可以省略，
+                // 因为 result.yrc = { lyric: response.content } 在这个分支的早些时候已经执行过了。
+                // 我们只关注删除或注释掉序列化和覆盖的步骤。
+              }
               
               console.log(`[LyricAtlasProvider] YRC/QRC预处理完成，已包含翻译和音译数据`);
             }
@@ -640,7 +659,8 @@ class LyricAtlasProvider implements LyricProvider {
         id: response.id,
         availableFormats: response.availableFormats || [],
         hasTranslation: response.hasTranslation || false,
-        hasRomaji: response.hasRomaji || false
+        hasRomaji: response.hasRomaji || false,
+        source: response.source
       };
 
       console.log(`[LyricAtlasProvider] Lyric meta for id ${id}:`, meta);
@@ -703,102 +723,63 @@ export class LyricService {
       
       let result: LyricData | null = null;
       
-      // 首先检查是否可以使用Lyric Atlas元数据接口
       if (this.laProvider) {
-        // 检查歌词元数据，看看是否有歌词数据
         const meta = await this.laProvider.checkLyricMeta(id);
         
         if (meta && meta.found) {
-          // 元数据表明有歌词，使用Lyric Atlas API
           console.log(`[LyricService] 元数据检查成功，使用Lyric Atlas获取歌词，ID: ${id}`);
-          result = await this.laProvider.getLyric(id);
-          
-          // 确保元数据被传递到结果中
-          if (result && meta) {
-            result.meta = meta;
-          }
+          result = await this.laProvider.getLyric(id); // This should already have meta
         } else {
-          // 元数据表明没有歌词，回退到网易云API
           console.log(`[LyricService] Lyric Atlas没有歌词数据，回退到网易云API，ID: ${id}`);
           result = await this.ncmProvider.getLyric(id);
-          
-          // 如果NCM API返回了歌词，再次检查是否需要从Lyric Atlas获取额外的翻译
-          if (result && result.lrc && result.lrc.lyric) {
-            // 尝试获取翻译和音译
-            try {
-              console.log(`[LyricService] 尝试从Lyric Atlas获取额外的翻译和音译，ID: ${id}`);
-              const laResult = await this.laProvider.getLyric(id);
-              
-              // 如果Lyric Atlas有翻译，合并到NCM结果中
-              if (laResult) {
-                // 合并翻译歌词
-                if (!result.tlyric && (laResult.tlyric || laResult.translation)) {
-                  console.log(`[LyricService] 从Lyric Atlas获取到翻译歌词，合并到结果中，ID: ${id}`);
-                  result.tlyric = laResult.tlyric;
-                  result.translation = laResult.translation;
-                }
-                
-                // 合并音译歌词
-                if (!result.romalrc && (laResult.romalrc || laResult.romaji)) {
-                  console.log(`[LyricService] 从Lyric Atlas获取到音译歌词，合并到结果中，ID: ${id}`);
-                  result.romalrc = laResult.romalrc;
-                  result.romaji = laResult.romaji;
-                }
-                
-                // 合并元数据
-                if (laResult.meta) {
-                  console.log(`[LyricService] 合并Lyric Atlas元数据，ID: ${id}`);
-                  result.meta = laResult.meta;
-                }
-              }
-            } catch (error) {
-              console.warn(`[LyricService] 获取额外翻译失败，ID: ${id}:`, error);
-            }
+          if (result && meta) { // If NCM gave lyrics, and we had LA meta initially (though found=false)
+            result.meta = { ...meta, foundNCM: true }; // Augment meta
+          } else if (result && !meta && this.laProvider) {
+            // If NCM gave lyrics and we never had LA meta, try to get LA meta just for source info etc.
+            const freshMeta = await this.laProvider.checkLyricMeta(id);
+            if (freshMeta) result.meta = freshMeta;
           }
         }
       } else {
-        // 没有配置Lyric Atlas提供者，直接使用当前设置的提供者
         console.log(`[LyricService] 使用默认提供者获取歌词，ID: ${id}`);
         result = await this.provider.getLyric(id);
       }
       
-      // 检查并确保结果始终包含lrc格式的歌词
       if (result) {
-        // 确保返回的数据有code字段
         if (result.code === undefined) {
           result.code = 200;
         }
         
-        // 确保所有来源的翻译歌词和音译歌词时间戳都与主歌词同步
         if (result.lrc?.lyric) {
           console.log(`[LyricService] 处理歌词同步，id: ${id}`);
-          
-          // 先准备主歌词的时间轴和内容映射
           const mainTimeMap = new Map<number, {time: string, content: string, rawLine: string}>();
-          
           const mainLrcLines = result.lrc.lyric.split('\n').filter(line => line.trim());
           const timeRegex = /\[(\d{2}:\d{2}(?:\.\d{2})?)\]/;
           
-          // 构建主歌词时间映射
           for (const line of mainLrcLines) {
             const match = line.match(timeRegex);
             if (match && match[1]) {
               const timeStr = match[1];
-              // 将时间字符串转换为毫秒，便于比较
               const timeParts = timeStr.split(':');
               const minutes = parseInt(timeParts[0]);
               const seconds = parseFloat(timeParts[1]);
               const timeMs = minutes * 60000 + seconds * 1000;
-              
               const content = line.replace(timeRegex, '').trim();
               if (content) {
                 mainTimeMap.set(timeMs, {time: timeStr, content, rawLine: line});
               }
             }
           }
-          
-          // 处理翻译歌词同步
+
+          // 条件性跳过 syncLyricTimestamps
+          const skipTimestampSyncLrc = result.meta?.source === 'repository'; // Main lyric source
+          // For roma, we also check if the specific romaji lyric source (if distinguishable) is repository grade
+          // Assuming for now that if meta.source is repository, associated roma is also repository grade.
+          const skipTimestampSyncRoma = result.meta?.source === 'repository';
+
           if (result.tlyric?.lyric) {
+            // Translation sync logic doesn't change based on roma source being repository
+            // unless we have a specific meta flag for tlyric source.
             console.log(`[LyricService] 对翻译歌词进行时间戳同步，id: ${id}`);
             result.tlyric.lyric = this.syncLyricTimestamps(
               result.tlyric.lyric, 
@@ -810,19 +791,22 @@ export class LyricService {
             console.log(`[LyricService] 没有发现翻译歌词，id: ${id}`);
           }
           
-          // 处理音译歌词同步
           if (result.romalrc?.lyric) {
-            console.log(`[LyricService] 对音译歌词进行时间戳同步，id: ${id}`);
-            result.romalrc.lyric = this.syncLyricTimestamps(
-              result.romalrc.lyric, 
-              mainTimeMap, 
-              "音译歌词",
-              id
-            );
+            if (skipTimestampSyncRoma) {
+              console.log(`[LyricService] 检测到音译来源 (romalrc) 为 repository，跳过时间戳同步，id: ${id}`);
+            } else {
+              console.log(`[LyricService] 对音译歌词进行时间戳同步，id: ${id}`);
+              result.romalrc.lyric = this.syncLyricTimestamps(
+                result.romalrc.lyric, 
+                mainTimeMap, 
+                "音译歌词",
+                id
+              );
+            }
           } else {
             console.log(`[LyricService] 没有发现音译歌词，id: ${id}`);
           }
-        
+          
           // 如果没有lrc但有yrc，确保我们能从yrc中创建一个基本的lrc
           if ((!result.lrc || !result.lrc.lyric) && result.yrc && result.yrc.lyric) {
             console.log(`[LyricService] No LRC found for id ${id}, attempting to generate from YRC`);

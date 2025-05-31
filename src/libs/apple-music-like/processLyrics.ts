@@ -9,6 +9,7 @@ export interface LyricWord {
   word: string;
   startTime: number;
   endTime: number;
+  // rawWord?: InputLyricWord; // 可选，用于调试
 }
 
 /**
@@ -115,7 +116,7 @@ function parseLrcToTimeMap(lrcText: string): Map<number, string> {
  * @param tolerance 容差范围
  * @returns 匹配的文本
  */
-function findBestTimeMatch(targetTime: number, timeMap: Map<number, string>, tolerance: number = 3000): string {
+function findBestTimeMatch(targetTime: number, timeMap: Map<number, string>, tolerance: number = 5000): string {
   // 首先尝试精确匹配
   if (timeMap.has(targetTime)) {
     return timeMap.get(targetTime) || "";
@@ -173,257 +174,111 @@ export function preprocessLyrics(songLyric: SongLyric, settings: SettingState): 
  */
 export function createLyricsProcessor(songLyric: SongLyric, settings: SettingState): LyricLine[] {
   // 优先级顺序：TTML > YRC > LRC
-  let rawLyrics: LyricLine[] = [];
+  let rawLyricsSource: InputLyricLine[] = []; // Use InputLyricLine for the source type
 
   // 选择合适的歌词源
   if (songLyric.hasTTML && songLyric.ttml && songLyric.ttml.length > 0) {
     console.log('[createLyricsProcessor] 使用TTML格式歌词');
-    rawLyrics = toRaw(songLyric.ttml);
+    rawLyricsSource = toRaw(songLyric.ttml) as InputLyricLine[];
   }
   else if (settings.showYrc && songLyric.yrcAMData?.length) {
     console.log('[createLyricsProcessor] 使用YRC格式歌词');
-    rawLyrics = toRaw(songLyric.yrcAMData);
+    rawLyricsSource = toRaw(songLyric.yrcAMData) as InputLyricLine[];
   }
-  else {
+  else if (songLyric.lrcAMData?.length) { // Ensure lrcAMData exists before using it
     console.log('[createLyricsProcessor] 使用LRC格式歌词');
-    rawLyrics = toRaw(songLyric.lrcAMData) || [];
+    rawLyricsSource = toRaw(songLyric.lrcAMData) as InputLyricLine[];
+  } else {
+    console.log('[createLyricsProcessor] 没有有效的歌词源数据');
+    return []; // No data to process
   }
 
-  // 预处理 - 解析LAAPI提供的翻译和音译LRC，使用预先处理的映射提高效率
+  // 预解析LRC格式的翻译和音译到时间映射表
   let translationMap: Map<number, string> = new Map();
-  let romajiMap: Map<number, string> = new Map();
-  
-  // 检查是否有元数据
-  const hasMetaInfo = songLyric.meta?.found;
-  const canUseAdvancedTranslation = hasMetaInfo && 
-                                   (songLyric.meta?.hasTranslation || 
-                                    (songLyric.meta?.availableFormats?.includes('eslrc') || 
-                                     songLyric.meta?.availableFormats?.includes('yrc')));
-  
-  const canUseAdvancedRomaji = hasMetaInfo && 
-                              (songLyric.meta?.hasRomaji || 
-                               (songLyric.meta?.availableFormats?.includes('eslrc') || 
-                                songLyric.meta?.availableFormats?.includes('yrc')));
-
-  // 提前解析翻译和音译数据到映射表，只解析一次
   if (settings.showTransl) {
-    // 处理不同格式的翻译歌词
-    let translationSource: string | undefined;
-    
-    if (songLyric.tlyric && songLyric.tlyric.lyric) {
-      // NCM API格式
-      translationSource = songLyric.tlyric.lyric;
-    } 
-    else if (songLyric.translation) {
-      // 新版LAAPI格式，可能是字符串或对象
-      if (typeof songLyric.translation === 'string') {
-        translationSource = songLyric.translation;
-      }
-      else if (typeof songLyric.translation === 'object' && songLyric.translation.lyric) {
-        translationSource = songLyric.translation.lyric;
-      }
-    }
-    
-    // 解析翻译歌词到映射表
-    if (translationSource) {
-      translationMap = parseLrcToTimeMap(translationSource);
-      console.log(`[createLyricsProcessor] 解析翻译歌词完成，共${translationMap.size}行`);
+    let translationSourceText: string | undefined;
+    if (songLyric.tlyric?.lyric) translationSourceText = songLyric.tlyric.lyric;
+    else if (typeof songLyric.translation === 'string') translationSourceText = songLyric.translation;
+    else if (typeof songLyric.translation === 'object' && songLyric.translation?.lyric) translationSourceText = songLyric.translation.lyric;
+    if (translationSourceText) {
+      translationMap = parseLrcToTimeMap(translationSourceText);
+      // console.log(`[createLyricsProcessor] 解析翻译歌词完成，共${translationMap.size}行`);
     }
   }
-  
+
+  let romajiMap: Map<number, string> = new Map();
   if (settings.showRoma) {
-    // 处理不同格式的音译歌词
-    let romajiSource: string | undefined;
-    
-    if (songLyric.romalrc && songLyric.romalrc.lyric) {
-      // NCM API格式
-      romajiSource = songLyric.romalrc.lyric;
-    } 
-    else if (songLyric.romaji) {
-      // 新版LAAPI格式，可能是字符串或对象
-      if (typeof songLyric.romaji === 'string') {
-        romajiSource = songLyric.romaji;
-      }
-      else if (typeof songLyric.romaji === 'object' && songLyric.romaji.lyric) {
-        romajiSource = songLyric.romaji.lyric;
-      }
-    }
-    
-    // 解析音译歌词到映射表
-    if (romajiSource) {
-      romajiMap = parseLrcToTimeMap(romajiSource);
-      console.log(`[createLyricsProcessor] 解析音译歌词完成，共${romajiMap.size}行`);
+    let romajiSourceText: string | undefined;
+    if (songLyric.romalrc?.lyric) romajiSourceText = songLyric.romalrc.lyric;
+    else if (typeof songLyric.romaji === 'string') romajiSourceText = songLyric.romaji;
+    else if (typeof songLyric.romaji === 'object' && songLyric.romaji?.lyric) romajiSourceText = songLyric.romaji.lyric;
+    if (romajiSourceText) {
+      romajiMap = parseLrcToTimeMap(romajiSourceText);
+      // console.log(`[createLyricsProcessor] 解析音译歌词完成，共${romajiMap.size}行`);
     }
   }
 
-  // 对于YRC/ESLRC/TTML等非LRC格式，处理翻译和音译的特殊逻辑
-  let specialProcessingNeeded = false;
-  if (songLyric.hasTTML || (settings.showYrc && songLyric.yrcAMData?.length)) {
-    // 检查是否有元数据，以及是否可以使用高级翻译/音译功能
-    if ((hasMetaInfo && (canUseAdvancedTranslation || canUseAdvancedRomaji)) ||
-        (songLyric.meta?.availableFormats && 
-         (songLyric.meta?.availableFormats.includes('yrc') || 
-          songLyric.meta?.availableFormats.includes('eslrc') ||
-          songLyric.meta?.availableFormats.includes('ttml')))) {
-      specialProcessingNeeded = true;
-      console.log('[createLyricsProcessor] 启用非LRC格式翻译/音译处理');
-    }
-  }
-
-  // 预填充翻译和音译映射到每一行歌词，解决非LRC格式歌词的翻译问题
-  if (specialProcessingNeeded && rawLyrics.length > 0) {
-    console.log(`[createLyricsProcessor] 非LRC格式歌词，预填充翻译和音译，行数: ${rawLyrics.length}`);
+  // 单遍处理所有歌词行
+  return rawLyricsSource.map((rawLineData: InputLyricLine, lineIndex: number): LyricLine => {
+    const rawLine = toRaw(rawLineData); // Ensure we are working with the raw object
     
-    // 1. 获取所有行的开始时间
-    const lineStartTimes = rawLyrics.map(line => {
-      const rawLine = toRaw(line);
-      return rawLine.startTime || (rawLine.words && rawLine.words.length > 0 ? rawLine.words[0].startTime : 0);
-    }).filter(time => time > 0);
-    
-    // 2. 如果有翻译，预先计算每行的翻译
-    const lineTranslations: string[] = [];
-    if (settings.showTransl && translationMap.size > 0) {
-      for (const startTime of lineStartTimes) {
-        lineTranslations.push(findBestTimeMatch(startTime, translationMap));
-      }
-      console.log(`[createLyricsProcessor] 预填充翻译映射完成，共${lineTranslations.length}行`);
-    }
-    
-    // 3. 如果有音译，预先计算每行的音译
-    const lineRomajis: string[] = [];
-    if (settings.showRoma && romajiMap.size > 0) {
-      for (const startTime of lineStartTimes) {
-        lineRomajis.push(findBestTimeMatch(startTime, romajiMap));
-      }
-      console.log(`[createLyricsProcessor] 预填充音译映射完成，共${lineRomajis.length}行`);
-    }
-    
-    // 4. 直接填充翻译和音译到原始歌词行
-    if (lineTranslations.length > 0 || lineRomajis.length > 0) {
-      rawLyrics = rawLyrics.map((line, index) => {
-        const rawLine = toRaw(line);
-        
-        // 如果行索引有效且有预填充的翻译，添加翻译
-        if (settings.showTransl && index < lineTranslations.length && lineTranslations[index]) {
-          rawLine.translatedLyric = lineTranslations[index];
-        }
-        
-        // 如果行索引有效且有预填充的音译，添加音译
-        if (settings.showRoma && index < lineRomajis.length && lineRomajis[index]) {
-          rawLine.romanLyric = lineRomajis[index];
-        }
-        
-        return rawLine;
-      });
-      
-      console.log(`[createLyricsProcessor] 预填充完成，处理后行数: ${rawLyrics.length}`);
-    }
-  }
-
-  // 优化批量处理 - 减少循环和条件判断
-  return rawLyrics.map((line: LyricLine, lineIndex: number) => {
-    const rawLine = toRaw(line);
-    
-    // 处理单词间的空格逻辑
     const processedWords = processWords(rawLine.words || []);
-      
-    // 获取当前行的开始时间，用于匹配翻译/音译
-    const currentStartTime = rawLine.startTime || (processedWords.length > 0 ? processedWords[0].startTime : 0);
-    
-    // 初始化翻译和音译文本
-    let translatedLyric = "";
-    let romanLyric = "";
 
-    // 对于特殊处理的格式，先检查原始行是否已包含翻译/音译
-    if (rawLine.translatedLyric) {
-      translatedLyric = rawLine.translatedLyric;
-    }
+    // 确定行开始和结束时间，优先使用行级别的时间戳
+    let lineStartTime: number = rawLine.startTime ?? (processedWords.length > 0 ? processedWords[0].startTime : 0);
+    let lineEndTime: number = rawLine.endTime ?? 
+                           (processedWords.length > 0 ? 
+                            processedWords[processedWords.length - 1].endTime : 
+                            lineStartTime); // Fallback to startTime if no words
     
-    if (rawLine.romanLyric) {
-      romanLyric = rawLine.romanLyric;
+    // 确保 endTime 不早于 startTime
+    if (lineEndTime < lineStartTime && processedWords.length > 0) {
+        lineEndTime = Math.max(processedWords[processedWords.length - 1].endTime, lineStartTime);
+    }
+     if (lineEndTime < lineStartTime) { // Final fallback if still inconsistent
+        lineEndTime = lineStartTime;
     }
 
-    // 如果行本身没有翻译/音译，再尝试从映射中查找
-    // 高效查找翻译
+    let translatedLyric = rawLine.translatedLyric || "";
+    let romanLyric = rawLine.romanLyric || "";
+
+    // 如果行本身没有预填充翻译/音译 (例如来自TTML的特定翻译轨道)，则尝试从LRC格式的翻译/音译数据中查找
     if (settings.showTransl && !translatedLyric && translationMap.size > 0) {
-      translatedLyric = findBestTimeMatch(currentStartTime, translationMap);
+      translatedLyric = findBestTimeMatch(lineStartTime, translationMap);
     }
-
-    // 高效查找音译
     if (settings.showRoma && !romanLyric && romajiMap.size > 0) {
-      romanLyric = findBestTimeMatch(currentStartTime, romajiMap);
+      romanLyric = findBestTimeMatch(lineStartTime, romajiMap);
     }
 
-    // 创建处理后的行对象并返回
     return {
-      ...rawLine,
+      startTime: lineStartTime,
+      endTime: lineEndTime,
       words: processedWords,
       translatedLyric,
-      romanLyric
+      romanLyric,
+      isBG: rawLine.isBG ?? false,
+      isDuet: rawLine.isDuet ?? false,
     };
   });
 }
 
 /**
- * 处理歌词单词，添加适当的空格
- * @param words 原始单词数组
- * @returns 处理后的单词数组
+ * 处理原始单词数组，确保空格等特殊单词被正确处理。
+ * @param words 原始单词数组 (来自解析库)
+ * @returns 处理后的单词数组 (用于 LyricPlayer)
  */
-function processWords(words: LyricWord[]): LyricWord[] {
-    // 定义特殊字符集合，这些字符前后不应添加空格
-    const specialChars = new Set(["'", "'", "'", "-", "…", ".", "'", "?", "'"]);
-  
-  // 用于检测中文字符的正则表达式，预编译提高效率
-  const chineseRegex = /[\u4e00-\u9fa5]/;
-    
-    // 检测是否包含中文字符的函数
-    const containsChinese = (text: string): boolean => {
-    return chineseRegex.test(text);
-    };
-
-    // 检查字符串是否以特殊字符开头或结尾
-    const hasSpecialCharAtBoundary = (text: string): boolean => {
-      if (!text || text.length === 0) return false;
-      const firstChar = text.charAt(0);
-      const lastChar = text.charAt(text.length - 1);
-      return specialChars.has(firstChar) || specialChars.has(lastChar);
-    };
-    
-  // 优化单词处理循环，减少重复计算
-  return toRaw(words).reduce<LyricWord[]>((acc, word, index, array) => {
-      if (!word) return acc;
-      
-    const currentWord = word.word?.trim() || "";
-    
-    // 添加当前单词
-      acc.push({
-        startTime: word.startTime,
-        endTime: word.endTime,
-      word: currentWord
-      });
-      
-      // 如果不是最后一个单词，考虑添加空格
-      if (index < array.length - 1 && array[index + 1]) {
-        const nextWord = array[index + 1].word?.trim() || "";
-        
-      // 使用短路逻辑减少计算量
-        if (currentWord && nextWord &&
-            !specialChars.has(currentWord) && 
-            !specialChars.has(nextWord) && 
-            !hasSpecialCharAtBoundary(currentWord) && 
-            !hasSpecialCharAtBoundary(nextWord) &&
-            !containsChinese(currentWord) && 
-            !containsChinese(nextWord)) {
-          acc.push({
-          word: "\u00A0", // 不间断空格
-            startTime: 0,
-            endTime: 0
-          });
-        }
-      }
-      
-      return acc;
-    }, []);
+function processWords(words: InputLyricWord[]): LyricWord[] {
+  if (!words || words.length === 0) {
+    return [];
+  }
+  // 直接映射，假设解析库提供的单词已包含正确的空格表示
+  // (例如，TTML解析器应将空格处理为单独的word对象，如 {"startTime":0,"endTime":0,"word":" "})
+  return words.map(w => ({
+    word: w.word,
+    startTime: w.startTime,
+    endTime: w.endTime,
+    // rawWord: w // 调试时可以取消注释
+  }));
 }
 
 /**
@@ -450,4 +305,24 @@ export function getProcessedLyrics(songLyric: SongLyric, settings: SettingState)
   songLyric.settingsHash = currentHash;
   
   return songLyric.processedLyrics;
+}
+
+//确保 InputLyricLine 和 InputLyricWord 类型定义与 @applemusic-like-lyrics/lyric 库的导出一致
+//假设它们是这样的：
+interface InputLyricWord {
+  word: string;
+  startTime: number;
+  endTime: number;
+  [key: string]: any; // 其他可能的属性
+}
+
+interface InputLyricLine {
+  words: InputLyricWord[];
+  startTime?: number; // 行的开始时间 (毫秒)
+  endTime?: number;   // 行的结束时间 (毫秒)
+  translatedLyric?: string; // 可能已预填充
+  romanLyric?: string;    // 可能已预填充
+  isBG?: boolean;
+  isDuet?: boolean;
+  [key: string]: any; // 其他可能的属性
 }

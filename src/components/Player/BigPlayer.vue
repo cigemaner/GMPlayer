@@ -832,7 +832,7 @@ watch(
 // 监听频谱更新
 watch(() => music.getSpectrumsData, throttle(200, (val) => {
   if (!music.getPlayState || !setting.dynamicFlowSpeed) return;
-  const variance = Math.max(Math.round(analyzeAudioIntensity(val) * setting.dynamicFlowSpeedScale * 7), 6)
+  const variance = Math.max(Math.round(analyzeAudioIntensity(val) * setting.dynamicFlowSpeedScale * 4), 6)
   dynamicFlowSpeed.value = variance
 }))
 
@@ -969,6 +969,10 @@ watch(
             
             :deep(.lrc-content) {
               padding: 15vh 0;
+              text-align: left;
+              width: 100%;
+              box-sizing: border-box;
+              margin: 0;
             }
             
             :deep(.lrc-item) {
@@ -1078,15 +1082,29 @@ watch(
     flex-direction: column;
     
     .mobile-song-info {
-      padding: 0 5vw;
-      margin-top: 80px;
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 80px;
+      padding: 0 70px 0 20px;
+      box-sizing: border-box;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
       z-index: 3;
-      text-align: center;
+      text-align: left;
+
+      &::before {
+        content: "";
+        display: block;
+        height: 6px;
+      }
 
       .name {
-        font-size: 1.5rem;
+        font-size: 1.3rem;
         line-height: 1.3;
-        margin-bottom: 6px;
+        margin-bottom: 4px;
         display: -webkit-box;
         -webkit-line-clamp: 2;
         -webkit-box-orient: vertical;
@@ -1096,15 +1114,16 @@ watch(
 
         span {
           &:nth-of-type(2) {
+            display: none;
             margin-left: 8px;
-            font-size: 1rem;
+            font-size: 0.85rem;
             opacity: 0.6;
           }
         }
       }
 
       .artists {
-        font-size: 0.9rem;
+        font-size: 0.8rem;
         opacity: 0.7;
         will-change: transform, opacity;
       }
@@ -1148,15 +1167,16 @@ watch(
         .mobile-lyrics {
           height: 100%;
           overflow-y: auto;
+          text-align: left;
           
           :deep(.lrc-content) {
-            padding: 30% 0;
+            padding: 15vh 0;
           }
           
           :deep(.lrc-item) {
-            font-size: 1.1rem;
-            line-height: 1.8;
-            margin: 10px 0;
+            font-size: 0.9rem;
+            line-height: 1.6;
+            margin: 8px 0;
             padding: 0 10px;
             transition: transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1), 
                         opacity 0.3s ease, 
@@ -1165,7 +1185,7 @@ watch(
             
             &.active {
               transform: scale(1.05);
-              font-size: 1.2rem;
+              font-size: 1rem;
               text-shadow: 0 0 10px rgba(255, 255, 255, 0.4);
               font-weight: 500;
             }

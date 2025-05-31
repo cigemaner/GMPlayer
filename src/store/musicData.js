@@ -8,7 +8,6 @@ import { userStore, settingStore } from "@/store";
 import { NIcon } from "naive-ui";
 import { PlayCycle, PlayOnce, ShuffleOne } from "@icon-park/vue-next";
 import { soundStop, fadePlayOrPause } from "@/utils/Player";
-import { parseLyric } from "@/utils/parseLyric";
 import getLanguageData from "@/utils/getLanguageData";
 import { preprocessLyrics } from "@/libs/apple-music-like/processLyrics";
 
@@ -25,20 +24,23 @@ const useMusicDataStore = defineStore("musicData", {
       playState: false,
       // 当前歌曲歌词数据
       songLyric: {
+        hasLrcTran: true,
+        hasLrcRoma: true,
+        hasYrc: false,
+        hasYrcTran: true,
+        hasYrcRoma: true,
+        hasTTML: false,
         lrc: [],
         yrc: [],
+        ttml: [],
         lrcAMData: [],
         yrcAMData: [],
-        hasTTML: false,     // 是否拥有TTML格式歌词
-        ttml: [],           // TTML解析后的数据
-        hasLrcTran: false,
-        hasLrcRoma: false,
-        hasYrc: false,
-        hasYrcTran: false,
-        hasYrcRoma: false
+        formattedLrc: "[69:10.00]吹き込んだそよ風が\n[69:10.00]从窗外吹进的微风\n[69:10.00]fu ki ko n da so yo ka ze ga\n[120:20.00]窓辺の花を揺らして\n[120:20.00]让窗旁的花儿随风摇曳\n[120:20.00]ma do be no ha na wo yu ra shi te\n[192:30.00]浮かんだ面影と\n[192:30.00]浮现内心的过去身影\n[192:30.00]u ka n da o mo ka ge to\n[244:00.00]春を貪った日々のこと\n[244:00.00]与那盗春往日\n[244:00.00]ha ru wo mu sa bo tta hi bi no ko to\n[437:40.00]読みかけた本の中\n[437:40.00]那读至一半的书本\n[437:40.00]yo mi ka ke ta ho n no na ka\n[490:40.00]夢中になって追いかけて\n[490:40.00]我曾痴迷地追逐着其中文字\n[490:40.00]mu chu u ni na tte o i ka ke te\n[562:10.00]いつの日か忘れてた\n[562:10.00]如今也忘却是何时所读\n[562:10.00]i tsu no hi ka wa su re te ta\n[611:50.00]栞は挟んだままなのに\n[611:50.00]明明那书签未曾取出\n[611:50.00]shi o ri wa ha sa n da ma ma na no ni\n[674:10.00]君との日々もあてのない夢も\n[674:10.00]无论是曾与你度过的时光 还是那不知去向的梦想\n[674:10.00]ki mi to no hi bi mo a te no na i yu me mo\n[772:10.00]色褪せずに記憶の奥底で熱を放つ\n[772:10.00]都未曾褪色 依旧在我记忆深处着散发热度\n[772:10.00]i ro a se zu ni ki o ku no o ku so ko de ne tsu wo ha na tsu\n[970:50.00]描いた未来は遥か遠く離れても\n[970:50.00]纵使我们所描绘的未来是如此遥远\n[970:50.00]e ga i ta mi ra i wa ha ru ka to o ku ha na re te mo\n[1093:10.00]君といた光が明日を照らすから\n[1093:10.00]只要与你在一起 光芒便会照耀明日\n[1093:10.00]ki mi to i ta hi ka ri ga a shi ta wo te ra su ka ra\n[1225:20.00]風に乗せてこんな言葉も\n[1225:20.00]这句话语也乘风而去\n[1225:20.00]ka ze ni no se te ko n na ko to ba mo\n[1286:00.00]伝えられたのなら\n[1286:00.00]若能传达予你\n[1286:00.00]tsu ta e ra re ta no na ra\n[1346:00.00]それだけで僕はもう生きてゆける\n[1346:00.00]仅是如此 就能令我继续活下去\n[1346:00.00]so re da ke de bo ku wa mo u i ki te yu ke ru\n[1485:40.00]数え切れない程の喜怒哀楽を重ねた\n[1485:40.00]经历了数不清的喜怒哀乐\n[1485:40.00]ka zo e ki re na i ho do no ki do a i ra ku wo ka sa ne ta\n[1607:40.00]閉じた瞼にさえ愛しい時間が溢れる\n[1607:40.00]就连闭上双目 依旧会浮现那可爱的时光\n[1607:40.00]to ji ta ma bu ta ni sa e i to shi i ji ka n ga a fu re ru\n[1720:50.00]もう怖くないよ 迷いもしないよ\n[1720:50.00]我已不再畏惧 不再迷茫\n[1720:50.00]mo u ko wa ku na i yo ma yo i mo shi na i yo\n[1817:10.00]この思い出を\n[1817:10.00]这份回忆\n[1817:10.00]ko no o mo i de wo\n[1862:20.00]拾ってまた僕は歩き出せる\n[1862:20.00]我将其捡起又迈步向前\n[1862:20.00]hi ro tte ma ta bo ku wa a ru ki da se ru\n[2017:50.00]願っても縋っても叶わない運命でも\n[2017:50.00]纵使这份命运令祈祷无法实现\n[2017:50.00]ne ga tte mo su ga tte mo ka na wa na i u n me i de mo\n[2139:10.00]僕らはその先で待ち合わせをしよう\n[2139:10.00]就让我们在那前方相会吧\n[2139:10.00]bo ku ra wa so no sa ki de ma chi a wa se wo shi yo u\n[2270:40.00]どんな夜もきっと越えられる\n[2270:40.00]无论怎样的夜晚都能跨越\n[2270:40.00]do n na yo ru mo ki tto ko e ra re ru\n[2331:20.00]君との旅路なら\n[2331:20.00]若是与你一起的旅途\n[2331:20.00]ki mi to no ta bi ji na ra\n[2394:50.00]巡り合う奇跡を信じて欲しい\n[2394:50.00]我想坚信那相逢的奇迹\n[2394:50.00]me gu ri a u ki se ki wo shi n ji te ho shi i\n[2530:10.00]躓いても間違ってでも\n[2530:10.00]即便受尽挫折 屡屡犯错\n[2530:10.00]tsu ma zu i te mo ma chi ga tte de mo\n[2593:50.00]ここまで歩いて来たんだ\n[2593:50.00]我们也都走到这里了\n[2593:50.00]ko ko ma de a ru i te ki ta n da\n[2648:00.00]刻んだ足跡は\n[2648:00.00]铭刻下的足迹\n[2648:00.00]ki za n da a shi a to wa\n[2709:50.00]僕らだけのもの\n[2709:50.00]皆是仅属于我们的存在\n[2709:50.00]bo ku ra da ke no mo no\n[2786:10.00]交わした誓いも\n[2786:10.00]无论是互换的誓言\n[2786:10.00]ka wa shi ta chi ka i mo\n[2908:40.00]重ねたあの日々も\n[2908:40.00]还是一同度过的时光\n[2908:40.00]ka sa ne ta a no hi bi mo\n[3033:10.00]描いた未来は遥か遠く離れても\n[3033:10.00]纵使我们所描绘的未来是那么遥远\n[3033:10.00]e ga i ta mi ra i wa ha ru ka to o ku ha na re te mo\n[3155:10.00]君といた光が明日を照らすから\n[3155:10.00]只要与你在一起 光芒便会照耀明日\n[3155:10.00]ki mi to i ta hi ka ri ga a shi ta wo te ra su ka ra\n[3284:50.00]いつか向き合った夢の先\n[3284:50.00]过去所面向的梦想前方\n[3284:50.00]i tsu ka mu ki a tta yu me no sa ki\n[3346:20.00]すれ違った道でも\n[3346:20.00]还有那擦肩而过的道路\n[3346:20.00]su re chi ga tta mi chi de mo\n[3408:20.00]温もりを頼りに歩いてゆこう\n[3408:20.00]就依靠这份温暖迈步向前吧\n[3408:20.00]nu ku mo ri wo ta yo ri ni a ru i te yu ko u\n[3532:40.00]その先で必ず巡り合うから\n[3532:40.00]因为在那前方你我定会相遇\n[3532:40.00]so no sa ki de ka na ra zu me gu ri a u ka ra\n[3698:10.00]吹き込んだそよ風が\n[3698:10.00]从窗外吹进的微风\n[3698:10.00]fu ki ko n da so yo ka ze ga\n[3750:10.00]窓辺の花を揺らして\n[3750:10.00]让窗旁的花儿随风摇曳\n[3750:10.00]ma do be no ha na wo yu ra shi te\n[3824:00.00]仰ぐ今日の空は\n[3824:00.00]仰望今日的天空\n[3824:00.00]a o gu kyo u no so ra wa\n[3874:20.00]あの時描いた青だった\n[3874:20.00]是我那时所描绘的蔚蓝\n[3874:20.00]a no to ki e ga i ta a o da tta\n",
+        processedLyrics: [],
+        settingsHash: "true-false-false"
       },
       // 当前歌曲歌词播放索引
-      playSongLyricIndex: 0,
+      playSongLyricIndex: -1,
       // 每日推荐
       dailySongsData: [],
       // 歌单分类
